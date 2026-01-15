@@ -1,42 +1,90 @@
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from typing import List, Optional
 
-from utils import normalize_skills
-from recommender import recommend_jobs
+# ----------------------------
+# App Initialization
+# ----------------------------
+app = FastAPI(
+    title="AI Job Recommendation API",
+    description="Skill-based Job Recommendation System (SDG 8)",
+    version="1.0.0"
+)
 
-app = FastAPI(title="AI Job Recommendation Agent")
-
-# ✅ CORS FIX (VERY IMPORTANT)
+# ----------------------------
+# CORS (IMPORTANT for frontend)
+# ----------------------------
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=["*"],   # allow all for demo/college project
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-class InputPayload(BaseModel):
-    skills: list
-    education: str | None = None
-    experience: str | None = None
-    career_interest: str | None = None
+# ----------------------------
+# Job–Skill Knowledge Base
+# ----------------------------
+JOB_SKILL_MAP = {
+    "Data Analyst": ["python", "sql", "statistics", "data analysis"],
+    "AI Intern": ["python", "machine learning", "deep learning"],
+    "Backend Developer": ["python", "api", "fastapi", "sql"],
+    "Frontend Developer": ["html", "css", "javascript"],
+    "Web Developer": ["html", "css", "javascript", "web development"],
+    "ML Engineer": ["python", "machine learning", "data science"],
+    "HR Executive": ["communication", "management"],
+    "Customer Support Associate": ["communication"]
+}
 
+# ----------------------------
+# Request Model
+# ----------------------------
+class UserInput(BaseModel):
+    skills: List[str]
+    education: Optional[str] = None
+    experience: Optional[str] = None
+    career_interest: Optional[str] = None
+
+# ----------------------------
+# Root Route (IMPORTANT)
+# ----------------------------
+@app.get("/")
+def root():
+    return {
+        "message": "AI Job Recommendation API is running",
+        "docs": "/docs"
+    }
+
+# ----------------------------
+# Recommendation Endpoint
+# ----------------------------
 @app.post("/recommend")
-def get_recommendations(data: InputPayload):
-    if not data.skills:
-        raise HTTPException(status_code=400, detail="Skills are required")
+def recommend_jobs(user: UserInput):
+    user_skills = list(set([skill.lower().strip() for skill in user.skills]))
 
-    skills = normalize_skills(data.skills)
-    jobs = recommend_jobs(skills)
+    recommendations = []
 
-    if not jobs:
-        return {
-            "message": "No matching jobs found. Try adding more skills.",
-            "skill_gap_suggestions": ["python", "sql", "communication"]
-        }
+    for job, required_skills in JOB_SKILL_MAP.items():
+        matched_skills = list(set(user_skills) & set(required_skills))
+        if matched_skills:
+            score = round(len(matched_skills) / len(required_skills), 2)
+            recommendations.append({
+                "job_role": job,
+                "matched_skills": matched_skills,
+                "confidence_score": score
+            })
+
+    # Sort by confidence score
+    recommendations.sort(key=lambda x: x["confidence_score"], reverse=True)
+
+    # Skill gap suggestion (top job only)
+    skill_gap = []
+    if recommendations:
+        top_job = recommendations[0]["job_role"]
+        skill_gap = list(set(JOB_SKILL_MAP[top_job]) - set(user_skills))
 
     return {
-        "recommended_jobs": jobs,
-        "note": "Recommendations are guidance, not guarantees."
+        "recommended_jobs": recommendations,
+        "skill_gap_suggestions": skill_gap
     }
+
